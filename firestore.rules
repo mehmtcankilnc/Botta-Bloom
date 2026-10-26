@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Yönetici listesi: sadece Firebase Console'dan elle eklenir.
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Herkese açık içerik (menü, site ayarları)
+    match /content/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /campaigns/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /events/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Üye profili ve damga sayısı
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.stamps == 0
+        && request.resource.data.rewardsRedeemed == 0;
+      allow update, delete: if isAdmin();
+    }
+
+    // Üyenin aldığı kuponlar. Kullanıcı kuponu sadece alabilir, kullanıldı işaretini yalnızca yönetici koyar.
+    match /userCoupons/{id} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'active'
+        && id == request.auth.uid + '_' + request.resource.data.campaignId
+        && get(/databases/$(database)/documents/campaigns/$(request.resource.data.campaignId)).data.active == true
+        && get(/databases/$(database)/documents/campaigns/$(request.resource.data.campaignId)).data.title == request.resource.data.title;
+      allow update, delete: if isAdmin();
+    }
+  }
+}
